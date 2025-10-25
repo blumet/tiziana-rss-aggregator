@@ -1,0 +1,210 @@
+<!--
+  RSS Aggregator with automatic fallback
+
+  This version extends the original aggregator by automatically falling back
+  to the rss2json API when the allorigins CORS proxy is unable to fetch
+  a feed or the feed contains no items/entries. This improves reliability
+  for feeds hosted on sites that block allorigins (e.g. OpenAI, Apple,
+  Google Workspace, VentureBeat).
+
+  To deploy online, serve this file from a web server (GitHub Pages, Netlify,
+  etc.) instead of opening it directly from disk. Opening via file:// may
+  restrict fetch requests.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tiziana's RSS Aggregator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+      color: #333;
+    }
+    header {
+      background-color: #0a3d62;
+      color: #fff;
+      padding: 1rem 2rem;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.5rem;
+    }
+    main {
+      padding: 1rem 2rem;
+    }
+    section {
+      margin-bottom: 2rem;
+    }
+    section h2 {
+      border-bottom: 2px solid #0a3d62;
+      padding-bottom: 0.5rem;
+      margin-top: 0;
+    }
+    .items {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .items li {
+      margin-bottom: 0.75rem;
+    }
+    .items li a {
+      text-decoration: none;
+      color: #1a0dab;
+    }
+    .items li a:hover {
+      text-decoration: underline;
+    }
+    .error {
+      color: #b00020;
+      font-style: italic;
+    }
+    .prompts ul {
+      list-style: disc;
+      padding-left: 1.5rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Tiziana's RSS Aggregator</h1>
+  </header>
+  <main></main>
+  <script>
+    // Define our list of feeds to display
+    const feeds = [
+      { category: 'Technology', url: 'https://techcrunch.com/feed/' },
+      { category: 'Apple', url: 'https://www.apple.com/newsroom/rss-feed.rss' },
+      { category: 'OpenAI', url: 'https://openai.com/blog/rss.xml' },
+      { category: 'Gemini (Google AI)', url: 'https://blog.google/technology/ai/rss' },
+      { category: 'iOS Shortcuts', url: 'https://www.macstories.net/tag/shortcuts/feed/' },
+      { category: 'Google Workspace Updates', url: 'https://workspaceupdates.googleblog.com/feeds/posts/default' },
+      { category: 'AI Business', url: 'https://venturebeat.com/feed' },
+      { category: 'Hotel News', url: 'https://www.hotelmanagement.net/rss.xml' },
+      { category: 'Hotel Tech (Shiji)', url: 'https://insights.shijigroup.com/feed/' },
+      { category: 'Leadership', url: 'https://www.fastcompany.com/section/leadership/rss' },
+      { category: 'German News', url: 'https://www.tagesschau.de/infoservices/alle-meldungen-100~rss2.xml' },
+      { category: 'Travel', url: 'https://www.theguardian.com/uk/travel/rss' },
+      { category: 'US News', url: 'https://feeds.npr.org/1001/rss.xml' },
+      { category: 'ADHD', url: 'https://www.additudemag.com/feed/' },
+      { category: 'Music', url: 'https://feeds.npr.org/1039/rss.xml' },
+      { category: 'Depeche Mode', url: 'https://depeche-mode.com/feed' }
+    ];
+
+    /**
+     * Initialize by building sections and initiating feed fetches.
+     */
+    function init() {
+      const main = document.querySelector('main');
+      feeds.forEach(feed => {
+        const section = document.createElement('section');
+        const header = document.createElement('h2');
+        header.textContent = feed.category;
+        const list = document.createElement('ul');
+        list.className = 'items';
+        section.appendChild(header);
+        section.appendChild(list);
+        main.appendChild(section);
+        fetchFeed(feed.url, list);
+      });
+      addPromptsSection(main);
+    }
+
+    /**
+     * Attempt to fetch a feed via allorigins and fall back to rss2json on error
+     * or when no items/entries are found.
+     *
+     * @param {string} feedUrl - The RSS/Atom feed URL
+     * @param {HTMLElement} listEl - UL element to populate
+     */
+    async function fetchFeed(feedUrl, listEl) {
+      try {
+        // First attempt via allorigins
+        const corsUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`;
+        const response = await fetch(corsUrl);
+        if (!response.ok) throw new Error('allorigins request failed');
+        const xmlText = await response.text();
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(xmlText, 'application/xml');
+        let entries = Array.from(xml.querySelectorAll('item'));
+        if (entries.length === 0) entries = Array.from(xml.querySelectorAll('entry'));
+        if (entries.length === 0) throw new Error('No entries via allorigins');
+        entries.slice(0, 5).forEach(entry => {
+          const titleEl = entry.querySelector('title');
+          const linkEl = entry.querySelector('link');
+          const link = linkEl ? (linkEl.getAttribute('href') || linkEl.textContent) : '#';
+          const title = titleEl ? titleEl.textContent.trim() : 'Untitled';
+          const li = document.createElement('li');
+          const a = document.createElement('a');
+          a.href = link;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.textContent = title;
+          li.appendChild(a);
+          listEl.appendChild(li);
+        });
+      } catch (originErr) {
+        console.warn('allorigins failed, attempting rss2json for', feedUrl, originErr);
+        try {
+          const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
+          const resp = await fetch(apiUrl);
+          if (!resp.ok) throw new Error('rss2json request failed');
+          const data = await resp.json();
+          if (!data.items || data.items.length === 0) throw new Error('No items via rss2json');
+          data.items.slice(0, 5).forEach(item => {
+            const li = document.createElement('li');
+            const a = document.createElement('a');
+            a.href = item.link || '#';
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.textContent = item.title || 'Untitled';
+            li.appendChild(a);
+            listEl.appendChild(li);
+          });
+        } catch (jsonErr) {
+          console.error('Both allorigins and rss2json failed for', feedUrl, jsonErr);
+          const errorLi = document.createElement('li');
+          errorLi.className = 'error';
+          errorLi.textContent = 'Unable to load feed.';
+          listEl.appendChild(errorLi);
+        }
+      }
+    }
+
+    /**
+     * Append static ChatGPT prompts to the page.
+     * @param {HTMLElement} container - The parent element to append the section
+     */
+    function addPromptsSection(container) {
+      const section = document.createElement('section');
+      section.className = 'prompts';
+      const header = document.createElement('h2');
+      header.textContent = 'Exceptional ChatGPT Prompts';
+      const p = document.createElement('p');
+      p.textContent = 'Here are a few thoughtfully crafted prompts to spark creative and insightful conversations with ChatGPT:';
+      const ul = document.createElement('ul');
+      const prompts = [
+        'Summarize a recent scientific research paper on artificial intelligence into three concise bullet points.',
+        'Draft a polite and persuasive email to a client explaining the benefits of a new software upgrade.',
+        'Plan a three-day itinerary in Rome that balances historical sites, local cuisine, and relaxation.'
+      ];
+      prompts.forEach(prompt => {
+        const li = document.createElement('li');
+        li.textContent = prompt;
+        ul.appendChild(li);
+      });
+      section.appendChild(header);
+      section.appendChild(p);
+      section.appendChild(ul);
+      container.appendChild(section);
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
