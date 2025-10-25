@@ -1,15 +1,14 @@
 <!--
-  RSS Aggregator with automatic fallback
+  RSS Aggregator for Tiziana
 
-  This version extends the original aggregator by automatically falling back
-  to the rss2json API when the allorigins CORS proxy is unable to fetch
-  a feed or the feed contains no items/entries. This improves reliability
-  for feeds hosted on sites that block allorigins (e.g. OpenAI, Apple,
-  Google Workspace, VentureBeat).
+  This simple HTML page fetches multiple RSS feeds and displays the latest
+  articles for each category. It uses the free rss2json API to convert RSS
+  data into JSON, then renders the top items on the page. You can modify
+  the `feeds` array in the script below to add or remove sources.
 
-  To deploy online, serve this file from a web server (GitHub Pages, Netlify,
-  etc.) instead of opening it directly from disk. Opening via file:// may
-  restrict fetch requests.
+  Note: The rss2json service limits requests without an API key. For
+  production use, sign up for a free key at https://rss2json.com/docs and
+  append `&api_key=YOUR_KEY` to the request URL.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -64,6 +63,7 @@
       color: #b00020;
       font-style: italic;
     }
+    /* Static prompts styling */
     .prompts ul {
       list-style: disc;
       padding-left: 1.5rem;
@@ -74,9 +74,11 @@
   <header>
     <h1>Tiziana's RSS Aggregator</h1>
   </header>
-  <main></main>
+  <main>
+    <!-- Sections will be populated by the script -->
+  </main>
   <script>
-    // Define our list of feeds to display
+    // Define the feeds to fetch. Each object has a category label and a URL.
     const feeds = [
       { category: 'Technology', url: 'https://techcrunch.com/feed/' },
       { category: 'Apple', url: 'https://www.apple.com/newsroom/rss-feed.rss' },
@@ -97,11 +99,12 @@
     ];
 
     /**
-     * Initialize by building sections and initiating feed fetches.
+     * Create a section for each feed and initiate a fetch for its content.
      */
     function init() {
       const main = document.querySelector('main');
       feeds.forEach(feed => {
+        // Create section elements
         const section = document.createElement('section');
         const header = document.createElement('h2');
         header.textContent = feed.category;
@@ -110,74 +113,67 @@
         section.appendChild(header);
         section.appendChild(list);
         main.appendChild(section);
+        // Fetch feed data
         fetchFeed(feed.url, list);
       });
+      // Add static ChatGPT prompts section
       addPromptsSection(main);
     }
 
     /**
-     * Attempt to fetch a feed via allorigins and fall back to rss2json on error
-     * or when no items/entries are found.
-     *
-     * @param {string} feedUrl - The RSS/Atom feed URL
-     * @param {HTMLElement} listEl - UL element to populate
+     * Fetch a single RSS feed via rss2json and populate the list with items.
+     * @param {string} feedUrl - The RSS feed URL
+     * @param {HTMLElement} listEl - The UL element to populate with items
      */
-    async function fetchFeed(feedUrl, listEl) {
-      try {
-        // First attempt via allorigins
-        const corsUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`;
-        const response = await fetch(corsUrl);
-        if (!response.ok) throw new Error('allorigins request failed');
-        const xmlText = await response.text();
-        const parser = new DOMParser();
-        const xml = parser.parseFromString(xmlText, 'application/xml');
-        let entries = Array.from(xml.querySelectorAll('item'));
-        if (entries.length === 0) entries = Array.from(xml.querySelectorAll('entry'));
-        if (entries.length === 0) throw new Error('No entries via allorigins');
-        entries.slice(0, 5).forEach(entry => {
-          const titleEl = entry.querySelector('title');
-          const linkEl = entry.querySelector('link');
-          const link = linkEl ? (linkEl.getAttribute('href') || linkEl.textContent) : '#';
-          const title = titleEl ? titleEl.textContent.trim() : 'Untitled';
-          const li = document.createElement('li');
-          const a = document.createElement('a');
-          a.href = link;
-          a.target = '_blank';
-          a.rel = 'noopener';
-          a.textContent = title;
-          li.appendChild(a);
-          listEl.appendChild(li);
-        });
-      } catch (originErr) {
-        console.warn('allorigins failed, attempting rss2json for', feedUrl, originErr);
-        try {
-          const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
-          const resp = await fetch(apiUrl);
-          if (!resp.ok) throw new Error('rss2json request failed');
-          const data = await resp.json();
-          if (!data.items || data.items.length === 0) throw new Error('No items via rss2json');
-          data.items.slice(0, 5).forEach(item => {
+    function fetchFeed(feedUrl, listEl) {
+      /*
+       * Fetch the RSS feed using the allorigins proxy.  This proxy service
+       * fetches the remote content and returns it with permissive CORS
+       * headers, allowing the browser to request and parse XML directly.
+       */
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`;
+      fetch(proxyUrl)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('Network response was not ok');
+          }
+          return response.text();
+        })
+        .then(xmlText => {
+          // Parse the XML text into a DOM document
+          const parser = new DOMParser();
+          const xml = parser.parseFromString(xmlText, 'application/xml');
+          const items = xml.querySelectorAll('item');
+          if (items.length === 0) {
+            throw new Error('No items found');
+          }
+          // Display up to 5 items
+          Array.from(items).slice(0, 5).forEach(item => {
+            const titleEl = item.querySelector('title');
+            const linkEl = item.querySelector('link');
+            const title = titleEl ? titleEl.textContent : 'Untitled';
+            const link = linkEl ? linkEl.textContent : '#';
             const li = document.createElement('li');
             const a = document.createElement('a');
-            a.href = item.link || '#';
+            a.href = link;
             a.target = '_blank';
             a.rel = 'noopener';
-            a.textContent = item.title || 'Untitled';
+            a.textContent = title;
             li.appendChild(a);
             listEl.appendChild(li);
           });
-        } catch (jsonErr) {
-          console.error('Both allorigins and rss2json failed for', feedUrl, jsonErr);
+        })
+        .catch(error => {
           const errorLi = document.createElement('li');
           errorLi.className = 'error';
           errorLi.textContent = 'Unable to load feed.';
           listEl.appendChild(errorLi);
-        }
-      }
+          console.error('Error fetching feed:', error);
+        });
     }
 
     /**
-     * Append static ChatGPT prompts to the page.
+     * Add a static section with curated ChatGPT prompts.
      * @param {HTMLElement} container - The parent element to append the section
      */
     function addPromptsSection(container) {
@@ -204,6 +200,7 @@
       container.appendChild(section);
     }
 
+    // Initialize on DOMContentLoaded
     document.addEventListener('DOMContentLoaded', init);
   </script>
 </body>
