@@ -1,216 +1,87 @@
-<!--
-  RSS Aggregator for Tiziana
-
-  This simple HTML page fetches multiple RSS feeds and displays the latest
-  articles for each category. It uses the free rss2json API to convert RSS
-  data into JSON, then renders the top items on the page. You can modify
-  the `feeds` array in the script below to add or remove sources.
-
-  Note: The rss2json service limits requests without an API key. For
-  production use, sign up for a free key at https://rss2json.com/docs and
-  append `&api_key=YOUR_KEY` to the request URL.
--->
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tiziana's RSS Aggregator</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      padding: 0;
-      background-color: #f5f5f5;
-      color: #333;
-    }
-    header {
-      background-color: #0a3d62;
-      color: #fff;
-      padding: 1rem 2rem;
-    }
-    header h1 {
-      margin: 0;
-      font-size: 1.5rem;
-    }
-    main {
-      padding: 1rem 2rem;
-    }
-    section {
-      margin-bottom: 2rem;
-    }
-    section h2 {
-      border-bottom: 2px solid #0a3d62;
-      padding-bottom: 0.5rem;
-      margin-top: 0;
-    }
-    .items {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-    .items li {
-      margin-bottom: 0.75rem;
-    }
-    .items li a {
-      text-decoration: none;
-      color: #1a0dab;
-    }
-    .items li a:hover {
-      text-decoration: underline;
-    }
-    .error {
-      color: #b00020;
-      font-style: italic;
-    }
-    /* Static prompts styling */
-    .prompts ul {
-      list-style: disc;
-      padding-left: 1.5rem;
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>Tiziana's RSS Aggregator</h1>
-  </header>
-  <main>
-    <!-- Sections will be populated by the script -->
-  </main>
-  <script>
-    // Define the feeds to fetch. Each object has a category label and a URL.
-    const feeds = [
-      { category: 'Technology', url: 'https://techcrunch.com/feed/' },
-      // Removed Apple feed because the Apple Newsroom RSS feed blocks CORS via allorigins
-      // { category: 'Apple', url: 'https://www.apple.com/newsroom/rss-feed.rss' },
-      { category: 'OpenAI', url: 'https://openai.com/blog/rss.xml' },
-      { category: 'Gemini (Google AI)', url: 'https://blog.google/technology/ai/rss' },
-      { category: 'iOS Shortcuts', url: 'https://www.macstories.net/tag/shortcuts/feed/' },
-      // Removed Google Workspace Updates feed; the source blocks our proxy and fails to load reliably
-      // { category: 'Google Workspace Updates', url: 'https://workspaceupdates.googleblog.com/feeds/posts/default' },
-      { category: 'AI Business', url: 'https://venturebeat.com/feed' },
-      { category: 'Hotel News', url: 'https://www.hotelmanagement.net/rss.xml' },
-      { category: 'Hotel Tech (Shiji)', url: 'https://insights.shijigroup.com/feed/' },
-      { category: 'Leadership', url: 'https://www.fastcompany.com/section/leadership/rss' },
-      { category: 'German News', url: 'https://www.tagesschau.de/infoservices/alle-meldungen-100~rss2.xml' },
-      { category: 'Travel', url: 'https://www.theguardian.com/uk/travel/rss' },
-      { category: 'US News', url: 'https://feeds.npr.org/1001/rss.xml' },
-      { category: 'ADHD', url: 'https://www.additudemag.com/feed/' },
-      { category: 'Music', url: 'https://feeds.npr.org/1039/rss.xml' },
-      { category: 'Depeche Mode', url: 'https://depeche-mode.com/feed' }
-    ];
-
-    /**
-     * Create a section for each feed and initiate a fetch for its content.
-     */
-    function init() {
-      const main = document.querySelector('main');
-      feeds.forEach(feed => {
-        // Create section elements
-        const section = document.createElement('section');
-        const header = document.createElement('h2');
-        header.textContent = feed.category;
-        const list = document.createElement('ul');
-        list.className = 'items';
-        section.appendChild(header);
-        section.appendChild(list);
-        main.appendChild(section);
-        // Fetch feed data
-        fetchFeed(feed.url, list);
-      });
-      // Add static ChatGPT prompts section
-      addPromptsSection(main);
-    }
-
-    /**
-     * Fetch a single RSS feed via rss2json and populate the list with items.
-     * @param {string} feedUrl - The RSS feed URL
-     * @param {HTMLElement} listEl - The UL element to populate with items
-     */
-    function fetchFeed(feedUrl, listEl) {
-      // Fetch the RSS/Atom feed via allorigins. If no <item> elements are found,
-      // attempt to fall back to <entry> elements (Atom). This improves support
-      // for feeds like OpenAI and Google AI that use Atom rather than RSS.
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`;
-      fetch(proxyUrl)
-        .then(response => {
-          if (!response.ok) {
-            throw new Error('Network response was not ok');
-          }
-          return response.text();
-        })
-        .then(xmlText => {
-          const parser = new DOMParser();
-          const xml = parser.parseFromString(xmlText, 'application/xml');
-          // Try RSS <item> nodes first
-          let items = Array.from(xml.querySelectorAll('item'));
-          // If no items, try Atom <entry> nodes
-          if (items.length === 0) {
-            items = Array.from(xml.querySelectorAll('entry'));
-          }
-          if (items.length === 0) {
-            throw new Error('No entries found');
-          }
-          items.slice(0, 5).forEach(item => {
-            const titleEl = item.querySelector('title');
-            const linkEl = item.querySelector('link');
-            let link;
-            if (linkEl) {
-              // Atom uses href attribute on <link>; RSS uses text content
-              link = linkEl.getAttribute('href') || linkEl.textContent;
-            } else {
-              link = '#';
-            }
-            const title = titleEl ? titleEl.textContent.trim() : 'Untitled';
-            const li = document.createElement('li');
-            const a = document.createElement('a');
-            a.href = link;
-            a.target = '_blank';
-            a.rel = 'noopener';
-            a.textContent = title;
-            li.appendChild(a);
-            listEl.appendChild(li);
-          });
-        })
-        .catch(error => {
-          const errorLi = document.createElement('li');
-          errorLi.className = 'error';
-          errorLi.textContent = 'Unable to load feed.';
-          listEl.appendChild(errorLi);
-          console.error('Error fetching feed:', feedUrl, error);
-        });
-    }
-
-    /**
-     * Add a static section with curated ChatGPT prompts.
-     * @param {HTMLElement} container - The parent element to append the section
-     */
-    function addPromptsSection(container) {
-      const section = document.createElement('section');
-      section.className = 'prompts';
-      const header = document.createElement('h2');
-      header.textContent = 'Exceptional ChatGPT Prompts';
-      const p = document.createElement('p');
-      p.textContent = 'Here are a few thoughtfully crafted prompts to spark creative and insightful conversations with ChatGPT:';
-      const ul = document.createElement('ul');
-      const prompts = [
-        'Summarize a recent scientific research paper on artificial intelligence into three concise bullet points.',
-        'Draft a polite and persuasive email to a client explaining the benefits of a new software upgrade.',
-        'Plan a three-day itinerary in Rome that balances historical sites, local cuisine, and relaxation.'
-      ];
-      prompts.forEach(prompt => {
-        const li = document.createElement('li');
-        li.textContent = prompt;
-        ul.appendChild(li);
-      });
-      section.appendChild(header);
-      section.appendChild(p);
-      section.appendChild(ul);
-      container.appendChild(section);
-    }
-
-    // Initialize on DOMContentLoaded
-    document.addEventListener('DOMContentLoaded', init);
-  </script>
-</body>
-</html>
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Tiziana's Aggregated Feed</title>
+    <link>https://blumet.github.io/tiziana-rss-aggregator/</link>
+    <description>Aggregated feed of technology, AI, news, travel, and more</description>
+    <language>en-us</language>
+    <item>
+      <title>India, the market BlaBlaCar once walked away from, is now its biggest</title>
+      <link>https://techcrunch.com/2025/10/25/india-the-market-blablacar-once-walked-away-from-is-now-its-biggest/</link>
+      <description>BlaBlaCar is seeing rapid growth in India, with 20 million passengers expected this year — up 50% from last year.</description>
+      <pubDate>Sat, 25 Oct 2025 14:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>The glaring security risks with AI browser agents</title>
+      <link>https://techcrunch.com/2025/10/25/the-glaring-security-risks-with-ai-browser-agents/</link>
+      <description>New AI browsers from OpenAI and Perplexity promise to increase user productivity, but they also come with increased security risks.</description>
+      <pubDate>Sat, 25 Oct 2025 12:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>OpenAI acquires Software Applications Incorporated, maker of Sky</title>
+      <link>https://openai.com/index/openai-acquires-software-applications-incorporated</link>
+      <description>OpenAI has acquired Software Applications Incorporated, maker of Sky—a natural language interface for Mac that brings AI directly into your desktop experience.</description>
+      <pubDate>Thu, 23 Oct 2025 10:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Consensus accelerates research with GPT-5 and Responses API</title>
+      <link>https://openai.com/index/consensus</link>
+      <description>Consensus uses GPT-5 and OpenAI’s Responses API to power a multi-agent research assistant that reads, analyzes, and synthesizes evidence in minutes—helping over 8 million researchers accelerate scientific discovery.</description>
+      <pubDate>Thu, 23 Oct 2025 09:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Sky Acquired by OpenAI</title>
+      <link>https://www.macstories.net/news/sky-acquired-by-openai/</link>
+      <description>Sky, the AI automation app that Federico previewed for MacStories readers in May, has been acquired by OpenAI.</description>
+      <pubDate>Thu, 23 Oct 2025 17:20:07 +0000</pubDate>
+    </item>
+    <item>
+      <title>Thinking Machines challenges OpenAI's AI scaling strategy: 'First superintelligence will be a superhuman learner'</title>
+      <link>https://venturebeat.com/ai/thinking-machines-challenges-openais-ai-scaling-strategy-first</link>
+      <description>A researcher at the startup Thinking Machines argues that the path to superintelligence isn't about training bigger models, but about becoming a superhuman learner and adapting.</description>
+      <pubDate>Fri, 24 Oct 2025 09:30:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Familienpolitik auf dem Prüfstand - was kommt, was nicht?</title>
+      <link>https://www.tagesschau.de/inland/innenpolitik/familienpolitik-bundesregierung-eltern-100.html</link>
+      <description>Die Bundesregierung hat sich vorgenommen, Familien in den Mittelpunkt zu stellen. Von Mutterschutz bis Elterngeld: Vieles ist geplant - doch bislang wenig beschlossen.</description>
+      <pubDate>Sat, 25 Oct 2025 14:07:55 +0000</pubDate>
+    </item>
+    <item>
+      <title>Kühltürme des bayerischen Atomkraftwerks Gundremmingen gesprengt</title>
+      <link>https://www.tagesschau.de/inland/gesellschaft/gundremmingen-akw-kuehltuerme-100.html</link>
+      <description>Das Atomkraftwerk Gundremmingen produzierte einst ein Viertel des Stroms in Bayern. Knapp vier Jahre nach seiner Stilllegung sind jetzt die beiden Kühltürme planmäßig gesprengt worden.</description>
+      <pubDate>Sat, 25 Oct 2025 11:13:56 +0000</pubDate>
+    </item>
+    <item>
+      <title>Accor strengthens Dubai portfolio with signing of iconic Creekside Hotel</title>
+      <link>https://www.breakingtravelnews.com/news/article/accor-strengthens-dubai-portfolio-with-signing-of-iconic-creekside-hotel/</link>
+      <description>Accor, a global hospitality leader, announces the signing of the Creekside Hotel in Dubai, which will join the Accor network and be repositioned as part of the MGallery Collection following renovations.</description>
+      <pubDate>Sat, 25 Oct 2025 08:14:26 +0000</pubDate>
+    </item>
+    <item>
+      <title>Kempinski Hotels Welcomes Barbara Biffi as Chief Brand Officer</title>
+      <link>https://www.breakingtravelnews.com/news/article/kempinski-hotels-welcomes-barbara-biffi-as-chief-brand-officer/</link>
+      <description>Kempinski Hotels announces the appointment of Barbara Biffi as Chief Brand Officer to lead the brand's strategic overhaul and marketing ecosystem.</description>
+      <pubDate>Sat, 25 Oct 2025 08:08:37 +0000</pubDate>
+    </item>
+    <item>
+      <title>Picasso portrait of muse Dora Maar, long hidden from view, sells for $37 million</title>
+      <link>https://www.npr.org/2025/10/25/nx-s1-5585904/picasso-dora-maar-painting-auction</link>
+      <description>"Bust of a Woman with a Flowered Hat," a Picasso portrait of Dora Maar, had remained hidden from public view for more than eight decades.</description>
+      <pubDate>Sat, 25 Oct 2025 13:10:08 +0000</pubDate>
+    </item>
+    <item>
+      <title>Drone photo winners will amaze your eyeballs: From a high-up horseman to a holy river</title>
+      <link>https://www.npr.org/sections/goats-and-soda/2025/10/25/g-s1-94482/drone-photo-contest-winners</link>
+      <description>The dazzling aerial photos honored by the 2025 Siena awards offer new ways of seeing familiar places.</description>
+      <pubDate>Sat, 25 Oct 2025 12:27:08 +0000</pubDate>
+    </item>
+    <item>
+      <title>No, Stimulants Don’t Cause Brain Damage</title>
+      <link>https://www.additudemag.com/how-do-stimulants-affect-the-brain-adhd/</link>
+      <description>Prescription stimulant medications, when used as instructed, don’t damage brains and may even be protective, according to research.</description>
+      <pubDate>Sat, 25 Oct 2025 09:46:23 +0000</pubDate>
+    </item>
+  </channel>
+</rss>
